@@ -31,6 +31,14 @@ environment for semi-interactive development of machine-checked proofs.
 
 ## Installation
 
+build from source:
+
+```sh
+dune build -p rocq-runtime,coq-core,rocq-core,coq,coqide-server && dune install rocq-runtime coq-core rocq-core coq coqide-server  && source ~/.zshrc
+
+rocq repl -l tests/atom
+```
+
 [![latest packaged version(s)][repology-badge]][repology-link]
 
 [![Docker Hub package][dockerhub-badge]][dockerhub-link]

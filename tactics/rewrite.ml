@@ -25,6 +25,9 @@ open Locus
 open Locusops
 open Elimschemes
 open Environ
+open Evarutil
+open Evardefine
+open Evarsolve
 open Termops
 open EConstr
 open Proofview.Notations
@@ -41,6 +44,18 @@ let bind_global_ref lib s =
   fun () -> Lazy.force gr
 
 type evars = evar_map * Evar.Set.t (* goal evars, constraint evars *)
+
+let debug_rewrite = CDebug.create ~name:"rewrite" ()
+
+let string_of_evars (env : Environ.env) (evd : Evd.evar_map) (evars : Evar.Set.t) (title : string) : Pp.t =
+  Evar.Set.fold (fun evar acc ->
+    (**Typing.type_of env evd (Evd.find evd evar)) ++ acc*)
+    let evi = Evd.find evd evar in
+    let info = (Termops.pr_evar_info env evd (Evd.find_undefined evd evar) ++ str ".") in
+    info ++ acc
+  ) evars (qstring title)
+
+
 
 let bind_global lib s =
   let gr = lazy (Rocqlib.lib_ref (lib ^ "." ^ s)) in
@@ -1026,6 +1041,12 @@ let subterm all flags (s : 'a pure_strategy) : 'a pure_strategy =
                     let evars', prf, car, rel, c2 =
                       resolve_morphism env m args args' (prop, cstr') evars'
                     in
+                    let (evd', cstrs') = evars in
+                    let () = debug_rewrite (fun () -> str "rel: " ++ Printer.pr_econstr_env env evd' rel) in
+                    let () = debug_rewrite (fun () -> str "ty: " ++ Printer.pr_econstr_env env evd' ty) in
+                    let () = debug_rewrite (fun () -> str "prf: " ++ Printer.pr_econstr_env env evd' prf) in
+                    let () = debug_rewrite (fun () -> str "from: " ++ Printer.pr_econstr_env env evd' t) in
+                    let () = debug_rewrite (fun () -> string_of_evars env evd' cstrs' "subterm App:\n") in
                     let res = { rew_car = ty; rew_from = t;
                                 rew_to = c2; rew_prf = RewPrf (rel, prf);
                                 rew_evars = evars' }
@@ -1036,9 +1057,16 @@ let subterm all flags (s : 'a pure_strategy) : 'a pure_strategy =
                         match anew with None -> aorig
                         | Some r -> r.rew_to) args args'
                     in
+                    let (evd', cstrs') = evars in
+                    let prf = RewCast DEFAULTcast in
+                    let RewPrf (rel, prf) = prf in
+                    let () = debug_rewrite (fun () -> str "ty: " ++ Printer.pr_econstr_env env evd' ty) in
+                    let () = debug_rewrite (fun () -> str "prf: " ++ Printer.pr_econstr_env env evd' prf) in
+                    let () = debug_rewrite (fun () -> str "from: " ++ Printer.pr_econstr_env env evd' t) in
+                    let () = debug_rewrite (fun () -> string_of_evars env evd' cstrs' "subterm App:\n") in
                     let res = { rew_car = ty; rew_from = t;
-                                rew_to = mkApp (m, args'); rew_prf = RewCast DEFAULTcast;
-                                rew_evars = evars' }
+                    rew_to = mkApp (m, args'); rew_prf = RewPrf (rel, prf);
+                    rew_evars = evars' }
                     in Success res
             in state, res
           in
@@ -1323,7 +1351,10 @@ module Strategies =
           match res with
           | Fail -> state, Fail
           | Identity -> snd.strategy { input with state }
-          | Success res -> transitivity state env unfresh cstr res snd
+          | Success res ->
+            let (evd, cstrs) = res.rew_evars in
+            let () = debug_rewrite (fun () -> string_of_evars env evd cstrs "module Stategies:\n") in
+            transitivity state env unfresh cstr res snd
                                            }
 
     let choice fst snd : 'a pure_strategy = { strategy =
@@ -1496,7 +1527,8 @@ let cl_rewrite_clause_aux ?(abs=None) strat env avoid sigma concl is_hyp : resul
   | Fail -> None
   | Identity -> Some None
   | Success res ->
-    let (_, cstrs) = res.rew_evars in
+    let (evd, cstrs) = res.rew_evars in
+    let () = debug_rewrite (fun () -> string_of_evars env evd cstrs "cl_rewrite_clause_aux~") in
     let evars = solve_constraints env res.rew_evars in
     let iter ev = if not (Evd.is_defined evars ev) then raise (UnsolvedConstraints (env, evars, ev)) in
     let () = Evar.Set.iter iter cstrs in
@@ -1821,6 +1853,8 @@ let default_morphism env sigma sign m =
     PropGlobal.build_signature (sigma, Evar.Set.empty) env t (fst sign) (snd sign)
   in
   let sigma, morph = app_poly_check env sigma PropGlobal.proper_type [| t; sign; m |] in
+  let (evars, cset) = sigma in
+  let () = debug_rewrite (fun () -> string_of_evars env evars cset "default_morphism") in
   let sigma, mor = Class_tactics.resolve_one_typeclass env (goalevars sigma) morph in
   let sigma, proj = proper_projection env sigma mor morph in
   sigma, mor, proj
@@ -2025,7 +2059,8 @@ struct
 
   let build_signature env sigma m cstr finalcstr =
     let evars = (sigma, Evar.Set.empty) in
-    let ((sigma, _), _, sig_, cstr) = PropGlobal.build_signature evars env m cstr finalcstr in
+    let ((sigma, evars), _, sig_, cstr) = PropGlobal.build_signature evars env m cstr finalcstr in
+    let () = debug_rewrite (fun () -> string_of_evars env sigma evars "build_signature") in
     sigma, sig_, cstr
 
   let build_morphism_signature = build_morphism_signature
