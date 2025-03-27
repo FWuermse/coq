@@ -803,7 +803,7 @@ let resolve_subrelation env car rel sort prf rel' res =
         rew_evars = evars }
 
 let resolve_morphism env m args args' (b,cstr) evars =
-  let evars, proj, sigargs, m', args, args' =
+  let evars, proj, sigargs, m', args, args', evd =
     let first = match (Array.findi (fun _ b -> not (Option.is_empty b)) args') with
     | Some i -> i
     | None -> invalid_arg "resolve_morphism" in
@@ -838,7 +838,7 @@ let resolve_morphism env m args args' (b,cstr) evars =
     let evars, morph = new_cstr_evar evars env' app in
     (* Replace the free [dosub_id] in the evar by the global reference *)
     let morph = Vars.replace_vars (fst evars) [dosub_id , dosub] morph in
-    evars, morph, sigargs, appm, morphobjs, morphobjs'
+    evars, morph, sigargs, appm, morphobjs, morphobjs', evd
   in
   let projargs, subst, evars, respars, typeargs =
     Array.fold_left2
@@ -865,6 +865,9 @@ let resolve_morphism env m args args' (b,cstr) evars =
       ([], [], evars, sigargs, []) args args'
   in
   let proof = applist (proj, List.rev projargs) in
+  (*TODO: log proof*)
+  
+  let () = debug_rewrite (fun () -> str "proof in morphism rw: " ++ Printer.pr_econstr_env env evd proof) in
   let newt = applist (m', List.rev typeargs) in
     match respars with
         [ a, Some r ] -> evars, proof, substl subst a, substl subst r, newt
